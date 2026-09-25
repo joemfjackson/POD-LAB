@@ -11,6 +11,13 @@
 3. Run the security and performance advisors (Dashboard → Advisors, or the Supabase MCP `get_advisors`) and resolve anything they flag.
 4. Auth → URL configuration: set **Site URL** to your production URL and add `https://<domain>/auth/callback` to the redirect URLs. Enable email confirmations for production.
 5. Storage: the `pod-lab` bucket (private, 25 MB object limit, restricted MIME types) is created by the migration.
+6. If migrations were applied some other way (for example through the Supabase MCP `apply_migration`, which records its own timestamps), align the history before the first `db push`:
+   ```bash
+   npx supabase migration list          # remote versions that are not in supabase/migrations
+   npx supabase migration repair --status reverted <each remote-only version>
+   npx supabase migration repair --status applied 20260925000100 20260925000200 20260925000300 \
+     20260925000400 20260925000500 20260925000600 20260925000700 20260925000800 20260925000900
+   ```
 
 ## 2. Vercel project
 
