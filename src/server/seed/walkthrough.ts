@@ -6,6 +6,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { requestAgentRun } from "../services/agents";
 import { decideGate, requestGate } from "../services/approvals";
 import { transitionBrand } from "../services/brands";
+import { recomputeBrandFinancials } from "../services/finance";
 
 type Db = SupabaseClient<Database>;
 
@@ -86,11 +87,62 @@ export async function seedDemoMetrics(admin: AdminClient, experimentId: string, 
 }
 
 /**
+ * DEMO orders for a brand's approved products over the last `days` days, then
+ * rebuilds the financial model. Clearly flagged is_demo.
+ */
+export async function seedDemoOrders(admin: AdminClient, workspaceId: string, brandId: string, days = 30, endDate = new Date()) {
+  const products = must(
+    await admin.from("brand_products").select("id, code, title, retail_price, economics").eq("brand_id", brandId).eq("status", "approved"),
+    "approved products",
+  );
+  if (!products.length) return 0;
+  const rows = [];
+  let n = 0;
+  for (let d = 0; d < days; d++) {
+    const date = new Date(endDate.getTime() - (days - 1 - d) * 86_400_000).toISOString().slice(0, 10);
+    const perDay = 1 + ((d * 5) % 4);
+    for (let k = 0; k < perDay; k++) {
+      const p = products[(d + k) % products.length]!;
+      const unit = (p.economics as { unit?: { blankCost: number; decorationCost: number; fulfillmentFees: number; shippingCost: number } }).unit;
+      const price = Number(p.retail_price);
+      const qty = k % 3 === 0 ? 2 : 1;
+      n++;
+      rows.push({
+        workspace_id: workspaceId,
+        brand_id: brandId,
+        brand_product_id: p.id,
+        external_order_id: `DEMO-${String(n).padStart(5, "0")}`,
+        order_date: date,
+        channel: "demo",
+        sku: p.code,
+        product_title: p.title,
+        quantity: qty,
+        revenue: Math.round(price * qty * 100) / 100,
+        discount: qty === 2 ? Math.round(price * 0.2 * 100) / 100 : 0,
+        shipping_paid: price * qty >= 75 ? 0 : 4.99,
+        cogs: Math.round((unit?.blankCost ?? 7) * qty * 100) / 100,
+        decoration_cost: Math.round((unit?.decorationCost ?? 4) * qty * 100) / 100,
+        fulfillment_fee: Math.round((unit?.fulfillmentFees ?? 1.5) * qty * 100) / 100,
+        shipping_cost: unit?.shippingCost ?? 4.75,
+        payment_processing: Math.round((price * qty * 0.029 + 0.3) * 100) / 100,
+        platform_fee: 0,
+        ad_attribution: k === 0 ? 9.5 : 0,
+        refunds: n % 17 === 0 ? Math.round(price * 100) / 100 : 0,
+        is_demo: true,
+      });
+    }
+  }
+  check(await admin.from("orders_import").upsert(rows, { onConflict: "brand_id,external_order_id,sku" }), "seed demo orders");
+  await recomputeBrandFinancials(admin, workspaceId, brandId);
+  return rows.length;
+}
+
+/**
  * Runs PL-0001 through the full pipeline with the demo provider:
  * Scout → approval → Brand Architect → name + identity → Creative Director →
  * compliance → design approvals → Product & Profit → assortment → Store Builder
  * → launch approval → Growth → experiment with demo metrics → Analyst.
- * Paid spend is NEVER approved by the walkthrough.
+ * Paid spend, compliance overrides and scaling are NEVER approved by the walkthrough.
  */
 export async function runWalkthrough(ctx: WalkthroughContext) {
   const brand = must(await ctx.admin.from("brands").select("stage, opportunity_id").eq("id", ctx.brandId).single(), "load brand");
@@ -119,8 +171,11 @@ export async function runWalkthrough(ctx: WalkthroughContext) {
   await approvePending(ctx, "brand_identity_final");
 
   await runAgent(ctx, "creative_director", { brand_id: ctx.brandId, mode: "full", design_count: 8 });
-  await approvePending(ctx, "compliance_override");
-  const designs = must(await ctx.user.from("design_concepts").select("id, code, title").eq("brand_id", ctx.brandId).eq("status", "review"), "designs for review");
+  // Compliance overrides are never auto-approved: flagged designs wait for a human.
+  const designs = must(
+    await ctx.user.from("design_concepts").select("id, code, title").eq("brand_id", ctx.brandId).eq("status", "review").eq("compliance_status", "clear"),
+    "designs for review",
+  );
   for (const d of designs) {
     const g = await requestGate(ctx.user, {
       workspaceId: ctx.workspaceId,
@@ -150,6 +205,9 @@ export async function runWalkthrough(ctx: WalkthroughContext) {
   await transitionBrand(ctx.user, { brandId: ctx.brandId, to: "testing", reason: "Launch experiment started (demo)", userId: ctx.userId });
   const n = await seedDemoMetrics(ctx.admin, experiment.id, 14);
   ctx.log?.(`  • ${experiment.code}: ${n} demo metric rows`);
+
+  const orders = await seedDemoOrders(ctx.admin, ctx.workspaceId, ctx.brandId, 30);
+  ctx.log?.(`  • ${orders} demo orders imported; financial model rebuilt`);
 
   await runAgent(ctx, "experiment_analyst", { brand_id: ctx.brandId });
   return { experimentId: experiment.id };

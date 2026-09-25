@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 export const MAX_IMPORT_ROWS = 5000;
-export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+export const MAX_IMPORT_BYTES = 4 * 1024 * 1024;
 
 /** RFC 4180 parser: quoted fields, escaped quotes, CRLF/LF, embedded newlines. */
 export function parseCsv(text: string): string[][] {
@@ -323,7 +323,7 @@ export function previewImport<K extends ImportKind>(
   csvText: string,
   mappingOverride?: Record<string, number>,
 ): ImportPreview<K> {
-  if (csvText.length > MAX_IMPORT_BYTES) throw new Error("CSV file is larger than 5 MB");
+  if (csvText.length > MAX_IMPORT_BYTES) throw new Error("CSV file is larger than 4 MB");
   const rows = parseCsv(csvText);
   const headers = (rows[0] ?? []).map((h) => h.trim());
   const body = rows.slice(1);

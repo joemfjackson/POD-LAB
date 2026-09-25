@@ -30,10 +30,18 @@ export function themeFromIdentity(identity: Identity | null, brandName: string) 
   const background = find(/background|primary bg|void|ink|black/i) ?? "#0B0B0C";
   const text = find(/text|light|bone|chalk|white/i) ?? "#EDEAE3";
   const accent = find(/accent|signal/i) ?? colors[colors.length - 1]?.hex ?? "#FF5A1F";
-  const muted = find(/secondary|graphite|steel|grey|gray/i) ?? "#3A3B3E";
+  // muted copy must stay readable: blend text toward background instead of using a dark swatch
+  const muted = blend(text, background, 0.65);
   const heading = identity?.fonts.find((f) => /head|display|wordmark/i.test(f.role))?.family ?? identity?.fonts[0]?.family ?? "Inter Tight";
-  const body = identity?.fonts.find((f) => /body|label|technical/i.test(f.role))?.family ?? identity?.fonts[1]?.family ?? "Inter";
+  const body = identity?.fonts.find((f) => /body/i.test(f.role))?.family ?? heading;
   return { colors: { background, surface: mix(background), text, muted, accent }, fonts: { heading, body }, logo_text: brandName };
+}
+
+function blend(a: string, b: string, weightA: number): string {
+  const pa = Number.parseInt(a.slice(1), 16);
+  const pb = Number.parseInt(b.slice(1), 16);
+  const ch = (shift: number) => Math.round(((pa >> shift) & 255) * weightA + ((pb >> shift) & 255) * (1 - weightA));
+  return `#${[16, 8, 0].map((sh) => ch(sh).toString(16).padStart(2, "0")).join("")}`;
 }
 
 function mix(hex: string): string {
@@ -108,7 +116,6 @@ export const storeBuilderHandler: AgentHandler<StorePayload, StoreOutput> = {
         .eq("status", "approved"),
       "load products",
     );
-    const byCode = new Map(products.map((p) => [p.code, p]));
 
     const existing = (await db.from("stores").select("id, version, status").eq("brand_id", brandId).order("created_at").limit(1).maybeSingle()).data;
     const storeFields = {
