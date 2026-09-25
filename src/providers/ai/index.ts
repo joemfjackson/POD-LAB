@@ -24,7 +24,7 @@ export function getAIProvider(overrides: AIProviderOverrides = {}): AIProvider {
       apiKey: overrides.apiKey ?? env.AI_API_KEY,
       baseUrl: env.AI_BASE_URL,
       responseFormat: env.AI_RESPONSE_FORMAT,
-      maxTokensParam: process.env.AI_MAX_TOKENS_PARAM === "max_completion_tokens" ? "max_completion_tokens" : "max_tokens",
+      maxTokensParam: env.AI_MAX_TOKENS_PARAM,
     });
   }
   return new DemoAIProvider();

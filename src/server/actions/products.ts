@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { costsOf, loadPricingModel, toFeeModel } from "@/agents/handlers/pricing-model";
 import { recommendProduct } from "@/domain/finance";
+import { uniqueSlug } from "@/domain/slug";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { Json } from "@/lib/supabase/database.types";
 import { requireContext } from "../context";
@@ -103,6 +104,55 @@ export async function requestAssortmentApprovalAction(_prev: ActionResult<unknow
     const gate = await requestGate(ctx.db, { workspaceId: ctx.workspace.id, userId: ctx.user.id, gateType: "product_assortment", subjectType: "brand", subjectId: brandId, brandId, title: `Approve product assortment (${ids.length} products)`, payload: { brand_product_ids: ids } });
     revalidatePath(`/brands/${brandId}/products`);
     return { ok: true, message: `Assortment approval requested (${gate.code}).` };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/** Manually attaches a catalog blank (optionally with a design) to a brand as a candidate product. */
+export async function attachProductAction(_prev: ActionResult<unknown>, fd: FormData): Promise<ActionResult> {
+  try {
+    const ctx = await requireContext("content.edit");
+    const input = z
+      .object({
+        brand_id: z.uuid(),
+        provider_product_id: z.uuid(),
+        design_id: z.uuid().optional(),
+        title: z.string().trim().min(2, "Title is required").max(150),
+        retail_price: z.coerce.number().positive().max(10000),
+      })
+      .parse({ brand_id: fd.get("brand_id"), provider_product_id: fd.get("provider_product_id"), design_id: fd.get("design_id") || undefined, title: fd.get("title"), retail_price: fd.get("retail_price") });
+    const pp = await ctx.db.from("provider_products").select("id, blank_cost, decoration_cost, fulfillment_fee, shipping_estimate_domestic, is_demo").eq("id", input.provider_product_id).single();
+    if (pp.error) throw new UserFacingError("Catalog product not found.");
+    const design = input.design_id ? await ctx.db.from("design_concepts").select("collection_id").eq("id", input.design_id).single() : null;
+    const pricing = await loadPricingModel(createSupabaseAdminClient(), ctx.workspace.id, input.brand_id);
+    const model = toFeeModel(pricing);
+    const rec = recommendProduct(costsOf(pp.data), input.retail_price, model);
+    const taken = await ctx.db.from("brand_products").select("slug").eq("brand_id", input.brand_id);
+    const res = await ctx.db
+      .from("brand_products")
+      .insert({
+        workspace_id: ctx.workspace.id,
+        brand_id: input.brand_id,
+        provider_product_id: pp.data.id,
+        design_id: input.design_id ?? null,
+        collection_id: design?.data?.collection_id ?? null,
+        pricing_model_id: pricing?.id ?? null,
+        title: input.title,
+        slug: uniqueSlug(input.title, (taken.data ?? []).map((t) => t.slug)),
+        status: "candidate",
+        retail_price: input.retail_price,
+        recommendation: rec.recommendation,
+        recommendation_reason: rec.reasons.join(" "),
+        economics: { unit: rec.economics, bundle_of_two: rec.bundleOfTwo, suggested_price: rec.suggestedPrice, cac: model.targetCac, fee_model: model, computed_at: new Date().toISOString() } as unknown as Json,
+        is_demo: pp.data.is_demo,
+      })
+      .select("code")
+      .single();
+    if (res.error) throw new UserFacingError(describeDbError(res.error, "Could not add the product."));
+    await ctx.db.from("audit_log").insert({ workspace_id: ctx.workspace.id, actor_type: "human", actor_id: ctx.user.id, action: "product.attached", subject_type: "brand_product", brand_id: input.brand_id, summary: `${ctx.user.displayName} added ${res.data.code} ${input.title} (${rec.recommendation.replace("_", " ")})` });
+    revalidatePath(`/brands/${input.brand_id}/products`);
+    return { ok: true, message: `Added ${res.data.code}: ${rec.recommendation.replace("_", " ")}. Request assortment approval when ready.` };
   } catch (e) {
     return toActionError(e);
   }

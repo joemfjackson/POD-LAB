@@ -21,6 +21,7 @@ const serverEnvSchema = z.object({
   AI_PRICE_OUTPUT_PER_MTOK: z.coerce.number().nonnegative().default(1.6),
   AI_RESPONSE_FORMAT: z.enum(["json_schema", "json_object"]).default("json_schema"),
   AGENT_EXECUTION_MODE: z.enum(["inline", "deferred"]).default("inline"),
+  AI_MAX_TOKENS_PARAM: z.enum(["max_tokens", "max_completion_tokens"]).default("max_tokens"),
 
   IMAGE_PROVIDER: z.enum(["none", "openai_compatible"]).default("none"),
   IMAGE_API_KEY: z.string().optional(),

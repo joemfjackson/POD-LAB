@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# POD Lab
 
-## Getting Started
+An AI-powered print-on-demand brand discovery, research, design, launch, testing and scaling operating system.
 
-First, run the development server:
+**Research → Validate → Brand → Design → Products → Store → Launch → Test → Analyze → Kill / Iterate / Clone / Scale**
+
+POD Lab runs a portfolio of niche POD brands as a repeatable experimentation engine. Ten specialist agents, coordinated by a Director, produce **Zod-validated structured output** that is stored as permanent relational records. Humans approve every important transition. Deterministic rules, not model opinion, decide unit economics and experiment outcomes.
+
+| Stage question | Agent |
+|---|---|
+| Is this market worth testing? | Opportunity Scout |
+| What brand could own this niche? | Brand Architect |
+| What would the audience actually want to wear or buy? | Creative Director |
+| Is it safe enough to put in front of a human for production approval? | IP / Compliance |
+| Can we sell it profitably? | Product & Profit |
+| Can we present it credibly enough to convert? | Store Builder |
+| How do we reach the right buyers? | Growth Agent |
+| What is emerging that we should look at? | Trend Watcher |
+| Did the market actually validate our hypothesis? | Experiment Analyst |
+| What should we do next? | POD Lab Director |
+
+## Stack
+
+Next.js 16 (App Router, Server Actions, `proxy.ts`), React 19, TypeScript (strict, `noUncheckedIndexedAccess`), Tailwind CSS v4, Supabase (Postgres, Auth, Storage, RLS), Zod 4, Vitest, Playwright. It deploys to Vercel.
+
+## Quick start (local)
+
+Prerequisites: Node 20.9+, Docker (for the local Supabase stack).
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run db:start            # local Supabase (Postgres, Auth, REST, Storage)
+npm run db:reset            # apply migrations in supabase/migrations
+cp .env.example .env.local  # fill in the values printed by `npx supabase status`
+npm run seed                # DEMO data: PL-0001 AI / Superintelligence (researching)
+npm run demo:walkthrough    # optional: run PL-0001 through the whole pipeline (demo provider)
+npm run dev                 # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Sign in as `demo@podlab.local` with password `podlab-demo-password` (override with `DEMO_USER_EMAIL` / `DEMO_USER_PASSWORD`). You can also sign up. Onboarding creates a workspace and can load the same demo data.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> If Docker Hub is reachable but `public.ecr.aws` is not, prefix Supabase CLI commands with `SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### AI configuration
 
-## Learn More
+By default `AI_PROVIDER=demo`, a deterministic provider that makes **no model calls and no web research**. Everything it creates is labelled **DEMO**, and every claim it makes is labelled as an assumption. To use a real model:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+AI_PROVIDER=openai_compatible
+AI_API_KEY=...                      # server-only
+AI_BASE_URL=https://api.openai.com/v1   # or any Chat Completions-compatible endpoint
+AI_DEFAULT_MODEL=gpt-4.1-mini
+RESEARCH_PROVIDER=tavily            # optional live web research with source URLs
+RESEARCH_API_KEY=...
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+You can override the model per agent (`AI_MODEL_OPPORTUNITY_SCOUT=…`), and per workspace or per agent in **Settings**. See [docs/integrations.md](docs/integrations.md).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
+| Command | Purpose |
+|---|---|
+| `npm run dev` / `build` / `start` | Next.js |
+| `npm run lint` | ESLint (zero warnings) |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | Unit tests (pure domain + runtime) |
+| `npm run test:integration` | Integration tests against local Supabase (skipped if it isn't running) |
+| `npm run test:e2e` | Playwright smoke tests (run `npm run build` first) |
+| `npm run db:reset` / `db:types` / `db:lint` | Migrations, generated types, schema lint |
+| `npm run seed` / `demo:walkthrough` | Demo data / full PL-0001 workflow |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Documentation
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [Architecture](docs/architecture.md): layers, request flow, agent runtime
+- [Agents](docs/agents.md): every agent, schemas, prompts, how to add one
+- [Database](docs/database.md): schema, RLS, guards, IDs, migrations, seeding
+- [Workflows](docs/workflows.md): lifecycle, approval gates, the end-to-end flow
+- [Integrations](docs/integrations.md): AI, research, image, domains, Shopify, fulfillment, how to add a provider
+- [Fulfill Engine plan](docs/fulfill-engine-plan.md)
+- [Deployment](docs/deployment.md): Supabase and Vercel
+- [Testing](docs/testing.md)
+- [Security](docs/security.md)
+- [Roadmap](docs/roadmap.md)
+
+## Principles
+
+- **Never fabricate evidence.** Models can only cite numbered sources that were actually retrieved. Uncited "facts" are downgraded to assumptions, and confidence is capped by the evidence.
+- **Humans decide.** Opportunities, final names and identity, production designs, compliance overrides, assortments, launches, paid spend, scaling, credentials and destructive actions all go through approval gates. Database triggers block anyone, including the service role, from setting approved states outside a gate.
+- **No fake functionality.** Capabilities that need credentials say **"Requires provider connection."**
+- **Gross and contribution profit are not net income.** Fixed overhead is out of scope.
